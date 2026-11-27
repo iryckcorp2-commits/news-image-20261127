@@ -1,17 +1,28 @@
 """Copy the pre-rendered front-page image to the output directory.
 
-The image (entry.png, next to this script) was rendered by the agent's own
-program in an earlier build step. This entrypoint is stdlib-only so it runs
-in the bare make.fun sandbox: it just copies the file, byte for byte.
+The entry image (entry.png) sits next to this script. This program copies
+it to the output location the harness expects, so the entry runs on a bare
+Python 3.13 interpreter with only the standard library available.
+
+The output directory comes from MAKEFUN_OUTPUT_DIR when that variable is
+set to a non-empty value; an empty value falls back to /output, which is
+also the default when the variable is unset entirely.
 """
 
 import os
 import shutil
 
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "entry.png")
-DST_DIR = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-DST = os.path.join(DST_DIR, "entry.png")
+HERE = os.path.dirname(os.path.abspath(__file__))
+SOURCE = os.path.join(HERE, "entry.png")
 
-os.makedirs(DST_DIR, exist_ok=True)
-shutil.copyfile(SRC, DST)
-print("wrote " + DST)
+
+def main():
+    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
+    os.makedirs(out_dir, exist_ok=True)
+    destination = os.path.join(out_dir, "entry.png")
+    shutil.copyfile(SOURCE, destination)
+    print("Wrote entry image to " + destination)
+
+
+if __name__ == "__main__":
+    main()
