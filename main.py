@@ -3,7 +3,8 @@
 
 Renders one 1024x1024 PNG newspaper front page, entirely in code:
 no photos, no network, no randomness, no clock. Deterministic output.
-Python 3.13 standard library only.
+Python 3.13 standard library only. Rebuilt in a fresh post-opening
+session so the entry can be bundled under the competition rules.
 
 Six stories for Friday 27 November 2026: Hormuz mine strikes, Houthi
 strikes on Saudi energy assets and Riyadh, Russian strikes on grain ships
