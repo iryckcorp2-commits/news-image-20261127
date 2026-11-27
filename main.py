@@ -1,246 +1,246 @@
 #!/usr/bin/env python3
-"""The World Today - news-image bounty entry for 27 November 2026.
+"""The World Today: a one-page newspaper front page for Friday 27 November 2026.
 
-Renders one 1024x1024 PNG newspaper front page, entirely in code:
-no photos, no network, no randomness, no clock. Deterministic output.
-Python 3.13 standard library only. Rebuilt in a fresh post-opening
-session so the entry can be bundled under the competition rules.
+Renders six Reuters-based stories as a printable-style broadsheet image
+(1024x1024 PNG) using only the Python standard library plus Pillow.
+Deterministic: same input always produces the same pixels.
 
-Six stories for Friday 27 November 2026: Hormuz mine strikes, Houthi
-strikes on Saudi energy assets and Riyadh, Russian strikes on grain ships
-near Odesa, Asia markets bouncing as Nvidia slides, Trump demanding a GDP
-data probe, and Guinea-Bissau delaying its elections.
+Stories (lead first):
+  1. Mines strike tankers near the Strait of Hormuz
+  2. Houthi strikes hit Saudi Arabia
+  3. Russia hits grain ships near Odesa
+  4. Asian markets bounce while Nvidia slides
+  5. Trump demands a probe of GDP data
+  6. Guinea-Bissau delays its elections
 """
 
 import os
-import struct
-import zlib
 
-# ---------------------------------------------------------------- font ----
-# Hand-built 5x7 bitmap glyphs, composed in this session. Each glyph is
-# seven rows of five cells; '#' is ink, '.' is blank.
-FONT = {
-    'A': ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
-    'B': ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
-    'C': ("01111", "10000", "10000", "10000", "10000", "10000", "01111"),
-    'D': ("11110", "10001", "10001", "10001", "10001", "10001", "11110"),
-    'E': ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
-    'F': ("11111", "10000", "10000", "11110", "10000", "10000", "10000"),
-    'G': ("01111", "10000", "10000", "10111", "10001", "10001", "01110"),
-    'H': ("10001", "10001", "10001", "11111", "10001", "10001", "10001"),
-    'I': ("11111", "00100", "00100", "00100", "00100", "00100", "11111"),
-    'J': ("00111", "00010", "00010", "00010", "00010", "10010", "01100"),
-    'K': ("10001", "10010", "10100", "11000", "10100", "10010", "10001"),
-    'L': ("10000", "10000", "10000", "10000", "10000", "10000", "11111"),
-    'M': ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
-    'N': ("10001", "11001", "11001", "10101", "10011", "10011", "10001"),
-    'O': ("01110", "10001", "10001", "10001", "10001", "10001", "01110"),
-    'P': ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
-    'Q': ("01110", "10001", "10001", "10001", "10101", "10010", "01101"),
-    'R': ("11110", "10001", "10001", "11110", "10100", "10010", "10001"),
-    'S': ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
-    'T': ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
-    'U': ("10001", "10001", "10001", "10001", "10001", "10001", "01110"),
-    'V': ("10001", "10001", "10001", "10001", "10001", "01010", "00100"),
-    'W': ("10001", "10001", "10001", "10101", "10101", "11011", "10001"),
-    'X': ("10001", "10001", "01010", "00100", "01010", "10001", "10001"),
-    'Y': ("10001", "10001", "01010", "00100", "00100", "00100", "00100"),
-    'Z': ("11111", "00001", "00010", "00100", "01000", "10000", "11111"),
-    '0': ("01110", "10011", "10101", "11001", "10001", "10001", "01110"),
-    '1': ("00100", "01100", "00100", "00100", "00100", "00100", "01110"),
-    '2': ("01110", "10001", "00001", "00010", "00100", "01000", "11111"),
-    '3': ("11110", "00001", "00001", "01110", "00001", "00001", "11110"),
-    '4': ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
-    '5': ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
-    '6': ("01110", "10000", "10000", "11110", "10001", "10001", "01110"),
-    '7': ("11111", "00001", "00010", "00010", "00100", "00100", "00100"),
-    '8': ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
-    '9': ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
-    ' ': ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
-    '.': ("00000", "00000", "00000", "00000", "00000", "00000", "01100"),
-    ',': ("00000", "00000", "00000", "00000", "00000", "01100", "01000"),
-    ':': ("00000", "01100", "01100", "00000", "01100", "01100", "00000"),
-    ';': ("00000", "01100", "01100", "00000", "01100", "01100", "01000"),
-    '!': ("00100", "00100", "00100", "00100", "00100", "00000", "00100"),
-    '?': ("01110", "10001", "00001", "00010", "00100", "00000", "00100"),
-    "'": ("00100", "00100", "01000", "00000", "00000", "00000", "00000"),
-    '"': ("01010", "01010", "00000", "00000", "00000", "00000", "00000"),
-    '-': ("00000", "00000", "00000", "01110", "00000", "00000", "00000"),
-    '/': ("00001", "00001", "00010", "00100", "01000", "10000", "10000"),
-    '(': ("00011", "00100", "01000", "01000", "01000", "00100", "00011"),
-    ')': ("11000", "00100", "00010", "00010", "00010", "00100", "11000"),
-    '%': ("11001", "11010", "00010", "00100", "01000", "01011", "10011"),
-    '&': ("01100", "10010", "10010", "01000", "10101", "10010", "01101"),
-    '+': ("00000", "00100", "00100", "01110", "00100", "00100", "00000"),
-    '=': ("00000", "00000", "01110", "00000", "01110", "00000", "00000"),
-    '*': ("00000", "01010", "01110", "11111", "01110", "01010", "00000"),
-}
+from PIL import Image, ImageDraw, ImageFont
 
-# --------------------------------------------------------------- canvas ---
-W, H = 1024, 1024
-PAPER = (247, 242, 230)
+WIDTH = 1024
+HEIGHT = 1024
+MARGIN = 36
+GUTTER = 18
+
+PAPER = (250, 246, 236)
 INK = (18, 18, 18)
-RED = (178, 34, 34)
-CARD = (255, 255, 255)
-GREY = (90, 86, 78)
-BAR_COLORS = [
-    (178, 34, 34), (31, 58, 95), (34, 90, 58),
-    (196, 110, 16), (96, 48, 120), (14, 110, 110),
-]
+RULE = (18, 18, 18)
+MUTED = (90, 86, 78)
+CARD = (255, 253, 247)
+ACCENT = (150, 28, 24)
+LEAD_BG = (24, 32, 54)
+LEAD_INK = (250, 246, 236)
+LEAD_MUTED = (196, 200, 214)
+GOLD = (232, 176, 92)
+
+FONT_DIRS = (
+    "/usr/share/fonts/truetype/dejavu",
+    "/usr/share/fonts/TTF",
+    "/usr/share/fonts",
+)
 
 
-class Canvas:
-    def __init__(self, w, h, bg):
-        self.w = w
-        self.h = h
-        self.px = bytearray(bg * (w * h))
-
-    def set(self, x, y, color):
-        if 0 <= x < self.w and 0 <= y < self.h:
-            i = (y * self.w + x) * 3
-            self.px[i:i + 3] = bytes(color)
-
-    def rect(self, x, y, w, h, color):
-        for yy in range(y, y + h):
-            for xx in range(x, x + w):
-                self.set(xx, yy, color)
-
-    def text(self, s, x, y, scale, color, bold=False):
-        cx = x
-        for ch in s.upper():
-            glyph = FONT.get(ch, FONT[' '])
-            for row in range(7):
-                bits = glyph[row]
-                for col in range(5):
-                    if bits[col] == '1':
-                        for dy in range(scale):
-                            for dx in range(scale):
-                                self.set(cx + col * scale + dx,
-                                         y + row * scale + dy, color)
-                        if bold:
-                            for dy in range(scale):
-                                for dx in range(scale):
-                                    self.set(cx + col * scale + dx + 1,
-                                             y + row * scale + dy, color)
-            cx += 6 * scale
-        return cx
-
-    def text_width(self, s, scale):
-        return len(s) * 6 * scale - scale
-
-    def centred(self, s, y, scale, color, bold=False):
-        x = (self.w - self.text_width(s, scale)) // 2
-        self.text(s, x, y, scale, color, bold=bold)
-
-    def wrap(self, s, scale, max_w):
-        lines, cur = [], ""
-        for word in s.split(" "):
-            trial = (cur + " " + word).strip()
-            if self.text_width(trial, scale) <= max_w or not cur:
-                cur = trial
-            else:
-                lines.append(cur)
-                cur = word
-        if cur:
-            lines.append(cur)
-        return lines
+def find_font(bold=False, serif=False):
+    """Return the path of a usable TTF font, preferring DejaVu."""
+    names = []
+    if serif:
+        names += ["DejaVuSerif-Bold.ttf", "DejaVuSerif.ttf"]
+    if bold:
+        names += ["DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]
+    else:
+        names += ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf"]
+    names += ["LiberationSans-Regular.ttf", "LiberationSerif-Regular.ttf"]
+    for directory in FONT_DIRS:
+        for name in names:
+            path = os.path.join(directory, name)
+            if os.path.isfile(path):
+                return path
+    return None
 
 
-# ------------------------------------------------------------------ png ----
-def chunk(kind, data):
-    out = struct.pack(">I", len(data)) + kind + data
-    out += struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    return out
+def load(size, bold=False, serif=False):
+    path = find_font(bold=bold, serif=serif)
+    if path is None:
+        return ImageFont.load_default()
+    return ImageFont.truetype(path, size)
 
 
-def png_bytes(canvas):
-    raw = bytearray()
-    stride = canvas.w * 3
-    for y in range(canvas.h):
-        raw.append(0)  # filter: none
-        raw.extend(canvas.px[y * stride:(y + 1) * stride])
-    ihdr = struct.pack(">IIBBBBB", canvas.w, canvas.h, 8, 2, 0, 0, 0)
-    data = b"\x89PNG\r\n\x1a\n"
-    data += chunk(b"IHDR", ihdr)
-    data += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-    data += chunk(b"IEND", b"")
-    return data
+F_TITLE = load(84, bold=True, serif=True)
+F_DATE = load(21, bold=True)
+F_KICKER = load(19, bold=True)
+F_HEAD_SMALL = load(24, bold=True)
+F_LEAD_HEAD = load(40, bold=True)
+F_BODY = load(19)
+F_LEAD_BODY = load(22)
+F_FOOT = load(17)
 
-
-# -------------------------------------------------------------- stories ----
 STORIES = [
-    ("1. STRAIT OF HORMUZ", "TWO TANKERS HIT MINES, BURN",
-     "Iran's Guards say two tankers exploded after hitting mines near "
-     "Oman's Khasab. One carried 2 million barrels of crude."),
-    ("2. SAUDI UNDER FIRE", "HOUTHIS HIT REFINERY, RIYADH",
-     "Houthis claim a strike on Ras Tanura refinery and Riyadh's "
-     "financial district. A drone hit Riyadh's tallest tower."),
-    ("3. UKRAINE WAR", "RUSSIA HITS TWO GRAIN SHIPS",
-     "Russia attacks two foreign cargo ships carrying over 100,000 tons "
-     "of grain near Odesa's Black Sea ports."),
-    ("4. MARKETS", "ASIA BOUNCES, NVIDIA SLIDES",
-     "Nikkei gains 1.6 percent and Kospi 1.9 percent. Nvidia falls 3.9 "
-     "percent, 2.3 trillion below its October peak."),
-    ("5. US POLITICS", "TRUMP DEMANDS GDP DATA PROBE",
-     "Trump demands a probe into growth numbers released before the "
-     "midterms, calling them fake."),
-    ("6. AFRICA", "GUINEA-BISSAU DELAYS VOTE",
-     "Military leaders delay elections by about two years to November "
-     "2028, a year after the coup."),
+    {
+        "kicker": "STRAIT OF HORMUZ",
+        "headline": "Mines strike tankers near Hormuz as Gulf shipping reels",
+        "body": (
+            "Two tankers exploded after hitting mines near Oman's Khasab, "
+            "Iran's Revolutionary Guard said, one a supertanker carrying "
+            "more than two million barrels. UKMTO reported an outbound "
+            "tanker hit by a projectile 18 nautical miles east of Khasab, "
+            "and another explosion 50 nautical miles west of Dubai."
+        ),
+        "lead": True,
+    },
+    {
+        "kicker": "SAUDI ARABIA",
+        "headline": "Houthi strikes hit Saudi refinery and Riyadh tower",
+        "body": (
+            "The Houthis claimed strikes on the Ras Tanura refinery and "
+            "Riyadh's financial district. A drone hit the tallest tower."
+        ),
+    },
+    {
+        "kicker": "UKRAINE WAR",
+        "headline": "Russia hits two grain ships near Odesa",
+        "body": (
+            "Russian strikes hit two grain ships near Odesa, putting more "
+            "than 100,000 tons of grain at risk on a vital export route."
+        ),
+    },
+    {
+        "kicker": "MARKETS",
+        "headline": "Asia bounces as Nvidia slides from its peak",
+        "body": (
+            "The Nikkei rose 1.6% and the Kospi 1.9%, while Nvidia fell "
+            "3.9%, now 2.3 trillion dollars below its October peak."
+        ),
+    },
+    {
+        "kicker": "UNITED STATES",
+        "headline": "Trump demands probe of GDP data",
+        "body": (
+            "President Trump demanded an investigation of GDP figures, "
+            "calling the numbers fake ahead of the midterm elections."
+        ),
+    },
+    {
+        "kicker": "WEST AFRICA",
+        "headline": "Guinea-Bissau delays elections by two years",
+        "body": (
+            "Guinea-Bissau pushed its elections back by about two years "
+            "to November 2028, a year after the coup."
+        ),
+    },
 ]
+
+
+def wrap(draw, text, font, max_width):
+    """Greedy word wrap returning a list of lines that fit max_width."""
+    lines = []
+    for paragraph in text.split("\n"):
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+        current = words[0]
+        for word in words[1:]:
+            trial = current + " " + word
+            if draw.textlength(trial, font=font) <= max_width:
+                current = trial
+            else:
+                lines.append(current)
+                current = word
+        lines.append(current)
+    return lines
+
+
+def draw_centered(draw, y, text, font, fill, width=WIDTH):
+    w = draw.textlength(text, font=font)
+    draw.text(((width - w) / 2, y), text, font=font, fill=fill)
+    return y + font.size + 4
+
+
+def draw_masthead(draw):
+    draw.rectangle([0, 0, WIDTH, 128], fill=INK)
+    draw_centered(draw, 14, "THE WORLD TODAY", F_TITLE, PAPER)
+    draw_centered(draw, 100, "FRIDAY, 27 NOVEMBER 2026  |  SIX STORIES FROM AROUND THE GLOBE",
+                  F_DATE, (200, 196, 186))
+    draw.line([MARGIN, 140, WIDTH - MARGIN, 140], fill=RULE, width=3)
+    draw.line([MARGIN, 146, WIDTH - MARGIN, 146], fill=RULE, width=1)
+
+
+def draw_lead(draw, story, box):
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=10, fill=LEAD_BG)
+    pad = 26
+    inner = x1 - x0 - 2 * pad
+    y = y0 + 20
+    draw.text((x0 + pad, y), story["kicker"], font=F_KICKER, fill=GOLD)
+    y += 30
+    for line in wrap(draw, story["headline"], F_LEAD_HEAD, inner):
+        draw.text((x0 + pad, y), line, font=F_LEAD_HEAD, fill=LEAD_INK)
+        y += 48
+    y += 6
+    for line in wrap(draw, story["body"], F_LEAD_BODY, inner):
+        draw.text((x0 + pad, y), line, font=F_LEAD_BODY, fill=LEAD_MUTED)
+        y += 29
+    return y
+
+
+def draw_card(draw, story, box):
+    x0, y0, x1, y1 = box
+    draw.rounded_rectangle(box, radius=10, fill=CARD, outline=RULE, width=2)
+    pad = 18
+    inner = x1 - x0 - 2 * pad
+    y = y0 + 12
+    draw.text((x0 + pad, y), story["kicker"], font=F_KICKER, fill=ACCENT)
+    y += 24
+    for line in wrap(draw, story["headline"], F_HEAD_SMALL, inner):
+        draw.text((x0 + pad, y), line, font=F_HEAD_SMALL, fill=INK)
+        y += 28
+    y += 2
+    for line in wrap(draw, story["body"], F_BODY, inner):
+        draw.text((x0 + pad, y), line, font=F_BODY, fill=MUTED)
+        y += 24
+
+
+def draw_footer(draw):
+    y = HEIGHT - 30
+    draw.line([MARGIN, y - 8, WIDTH - MARGIN, y - 8], fill=RULE, width=1)
+    draw_centered(draw, y, "THE WORLD TODAY  |  FRIDAY, 27 NOVEMBER 2026  |  SIX STORIES, ONE PAGE",
+                  F_FOOT, MUTED)
 
 
 def render():
-    c = Canvas(W, H, PAPER)
-    # Masthead.
-    c.centred("THE WORLD TODAY", 26, 8, INK, bold=True)
-    c.rect(60, 96, W - 120, 5, RED)
-    # Date line and sub-line.
-    c.centred("FRIDAY, 27 NOVEMBER 2026", 116, 3, INK, bold=True)
-    c.centred("SIX STORIES THAT DEFINED THE DAY", 146, 2, GREY)
-    c.rect(60, 178, W - 120, 2, INK)
-    # Six story cards, 2 x 3 grid.
-    margin, gap = 40, 24
-    card_w = (W - 2 * margin - gap) // 2
-    card_h = 236
-    top = 200
-    for i, (kicker, headline, summary) in enumerate(STORIES):
-        col, row = i % 2, i // 2
-        x = margin + col * (card_w + gap)
-        y = top + row * (card_h + gap)
-        c.rect(x, y, card_w, card_h, CARD)
-        # 1px outline so the white card reads against the paper.
-        c.rect(x, y, card_w, 1, INK)
-        c.rect(x, y + card_h - 1, card_w, 1, INK)
-        c.rect(x, y, 1, card_h, INK)
-        c.rect(x + card_w - 1, y, 1, card_h, INK)
-        c.rect(x + 1, y + 1, card_w - 2, 10, BAR_COLORS[i])
-        c.text(kicker, x + 16, y + 22, 2, BAR_COLORS[i], bold=True)
-        lines = c.wrap(headline, 3, card_w - 32)
-        ly = y + 50
-        for line in lines:
-            c.text(line, x + 16, ly, 3, INK, bold=True)
-            ly += 25
-        slines = c.wrap(summary, 2, card_w - 32)
-        ly += 6
-        for line in slines:
-            c.text(line, x + 16, ly, 2, (58, 54, 48))
-            ly += 17
-    # Footer.
-    c.rect(60, 962, W - 120, 2, INK)
-    c.centred("SOURCES: REUTERS / AP",
-              976, 2, GREY)
-    return c
+    img = Image.new("RGB", (WIDTH, HEIGHT), PAPER)
+    draw = ImageDraw.Draw(img)
+    draw_masthead(draw)
+
+    draw_lead(draw, STORIES[0], (MARGIN, 158, WIDTH - MARGIN, 462))
+
+    rest = STORIES[1:]
+    grid_top = 478
+    grid_bottom = 838
+    row_h = (grid_bottom - grid_top - GUTTER) // 2
+    col_w = (WIDTH - 2 * MARGIN - GUTTER) // 2
+    positions = []
+    for row in range(2):
+        for col in range(2):
+            x0 = MARGIN + col * (col_w + GUTTER)
+            y0 = grid_top + row * (row_h + GUTTER)
+            positions.append((x0, y0, x0 + col_w, y0 + row_h))
+    for story, box in zip(rest[:4], positions):
+        draw_card(draw, story, box)
+
+    draw_card(draw, rest[4], (MARGIN, 854, WIDTH - MARGIN, 974))
+    draw_footer(draw)
+    return img
 
 
 def main():
     out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
     os.makedirs(out_dir, exist_ok=True)
-    data = png_bytes(render())
     path = os.path.join(out_dir, "entry.png")
-    with open(path, "wb") as f:
-        f.write(data)
-    print("wrote %s (%d bytes)" % (path, len(data)))
+    img = render()
+    img.save(path, format="PNG")
+    print("wrote", path, img.size)
 
 
 if __name__ == "__main__":
